@@ -427,6 +427,8 @@ doubles the write cost on API billing.
 | **Rollover** | Any of: (1) returning with a cold cache and `used ≥ 100k`; (2) away ≥ 8 hours with ≥ 3 compactions; (3) the loop guard fires | Summaries of summaries drift. A new session starts with a handoff. |
 | **Safety net** | A single turn fills the window | The harness's own auto-compaction |
 
+The numbers above are defaults; the user can change them in `system.toml` ([system settings](../reference/system-settings.md)).
+
 The `idleCompaction` setting needs no change. The harness never idle-compacts in SDK/ACP sessions, and setting it
 to true "does not turn idle compaction on".
 
