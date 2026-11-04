@@ -27,6 +27,7 @@ mod send_cli;
 mod service;
 mod shell;
 mod store;
+mod system_config;
 mod tui;
 mod update;
 mod usage;
@@ -524,7 +525,8 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     write_token_file(&token)?;
     let identity = identity::Identity::load_or_create(&service::data_dir())?;
     tokio::task::spawn_blocking(backends::hydrate_path).await?;
-    let hub = hub::Hub::new(store, host_id, identity, token, port);
+    let system = std::sync::Arc::new(tokio::task::spawn_blocking(system_config::SystemConfig::load).await?);
+    let hub = hub::Hub::with_system(store, host_id, identity, token, port, system);
     hub.start()?;
     network::start(&hub).await;
     analytics::host_started(&hub, service::started_by_service());

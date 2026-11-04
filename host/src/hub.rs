@@ -78,6 +78,8 @@ pub struct Hub {
     pub analytics: crate::analytics::Analytics,
     pub routines: crate::routines::Routines,
     pub team: crate::chat::team::Requests,
+    /// The thresholds from `system.toml` (defaults when there is none).
+    pub system: Arc<crate::system_config::SystemConfig>,
     pub groups: crate::chat::group::Rooms,
     /// The user's other computers (codync-network), once this one is in a network.
     pub network: crate::network::Network,
@@ -124,13 +126,27 @@ impl Hub {
             || self.terms.busy()
     }
 
+    /// A hub with the default system settings, for tests.
+    #[cfg(test)]
     pub fn new(store: Store, host_id: String, identity: Identity, token: String, port: u16) -> Arc<Self> {
+        Self::with_system(store, host_id, identity, token, port, Arc::default())
+    }
+
+    pub fn with_system(
+        store: Store,
+        host_id: String,
+        identity: Identity,
+        token: String,
+        port: u16,
+        system: Arc<crate::system_config::SystemConfig>,
+    ) -> Arc<Self> {
         let (events, _) = broadcast::channel(1024);
         let screen = Arc::new(Screen::new(Screen::load_enabled(&store), events.clone()));
         Arc::new(Self {
             analytics: crate::analytics::Analytics::load(&store),
             routines: crate::routines::Routines::default(),
-            team: crate::chat::team::Requests::default(),
+            team: crate::chat::team::Requests::new(system.team),
+            system,
             groups: crate::chat::group::Rooms::default(),
             network: crate::network::Network::default(),
             waiting: crate::chat::team::remote::Waiting::default(),

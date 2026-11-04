@@ -6,7 +6,7 @@
 use crate::hub::Hub;
 use crate::store::{BotConfig, Entry, EntryKind, Lane, Store};
 use anyhow::{Result, anyhow, bail};
-use codync_mem::compaction::{Handoff, Request};
+use codync_mem::compaction::{self, Handoff, Request};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -66,7 +66,7 @@ pub fn summary_key(bot: &str, session: &str) -> String {
 
 /// Posts the card for `session`, the bot's main conversation, built from its chat.
 pub fn draft(hub: &Hub, cfg: &BotConfig, session: &str, reason: Reason) -> Result<Entry> {
-    let text = build(&hub.store, &cfg.id, session)?;
+    let text = build(&hub.store, &hub.system.compaction, &cfg.id, session)?;
     let lane = Lane::main(&cfg.id);
     let data = json!({
         "text": reason.line(),
@@ -81,7 +81,7 @@ pub fn draft(hub: &Hub, cfg: &BotConfig, session: &str, reason: Reason) -> Resul
     Ok(entry)
 }
 
-fn build(store: &Store, bot: &str, session: &str) -> Result<String> {
+fn build(store: &Store, rules: &compaction::Config, bot: &str, session: &str) -> Result<String> {
     let entries = store.history(bot, i64::MAX, READ)?;
     let user = EntryKind::User.as_str();
     let requests: Vec<(String, String)> = entries
@@ -106,7 +106,7 @@ fn build(store: &Store, bot: &str, session: &str) -> Result<String> {
         plan: plan.as_deref(),
         bookmark: bookmark.map(|e| e.id.as_str()),
     }
-    .render())
+    .render(rules))
 }
 
 pub(crate) fn plan_text(data: &Value) -> String {

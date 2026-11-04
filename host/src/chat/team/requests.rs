@@ -5,15 +5,12 @@ use anyhow::{Result, bail};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use super::MAX_PENDING_MESSAGES;
-
-const MAX_REQUEST_HOPS: u8 = 8;
-pub(super) const MAX_PENDING_MESSAGES_PER_SENDER: usize = 16;
+use crate::system_config::TeamLimits;
 
 /// Nothing waits on a message, so there is no wait graph: capacity and the chain's hop count
 /// bound what bots can start.
 #[derive(Default)]
-pub struct Requests(pub(super) Mutex<RequestState>);
+pub struct Requests(pub(super) Mutex<RequestState>, pub(super) TeamLimits);
 
 /// A running turn, as bot messages see it.
 #[derive(Clone, Copy)]
@@ -33,15 +30,20 @@ pub(super) struct RequestState {
 }
 
 impl Requests {
+    pub fn new(limits: TeamLimits) -> Self {
+        Self(Mutex::default(), limits)
+    }
+
     pub(super) fn reserve_message(&self, from: &str) -> Result<u8> {
+        let limits = self.1;
         let mut state = self.0.locked();
-        let hops = state.next_hop(from)?;
-        if state.messages >= MAX_PENDING_MESSAGES {
+        let hops = state.next_hop(from, limits.max_request_hops)?;
+        if state.messages >= limits.max_pending_messages {
             bail!("too many pending bot messages");
         }
         let count = state.messages_by_sender.entry(from.to_owned()).or_default();
-        if *count >= MAX_PENDING_MESSAGES_PER_SENDER {
-            bail!("too many pending bot messages from this bot (limit {MAX_PENDING_MESSAGES_PER_SENDER})");
+        if *count >= limits.max_pending_messages_per_sender {
+            bail!("too many pending bot messages from this bot (limit {})", limits.max_pending_messages_per_sender);
         }
         *count += 1;
         state.messages += 1;
@@ -70,7 +72,7 @@ impl Requests {
 }
 
 impl RequestState {
-    fn next_hop(&self, from: &str) -> Result<u8> {
+    fn next_hop(&self, from: &str, max_hops: u8) -> Result<u8> {
         match self.active.get(from) {
             None => bail!("the requesting bot is no longer working"),
             Some(Turn::Request) => {
@@ -78,8 +80,8 @@ impl RequestState {
                     "message_bot isn't available while answering another bot's request: say what you need in your reply"
                 )
             }
-            Some(&Turn::Chat(hops)) if hops >= MAX_REQUEST_HOPS => {
-                bail!("bot request hop limit ({MAX_REQUEST_HOPS}) reached; ask the user before starting another chain")
+            Some(&Turn::Chat(hops)) if hops >= max_hops => {
+                bail!("bot request hop limit ({max_hops}) reached; ask the user before starting another chain")
             }
             Some(&Turn::Chat(hops)) => Ok(hops + 1),
         }
@@ -89,6 +91,25 @@ impl RequestState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const MAX_REQUEST_HOPS: u8 = TeamLimits::DEFAULT.max_request_hops;
+    const MAX_PENDING_MESSAGES: usize = TeamLimits::DEFAULT.max_pending_messages;
+    const MAX_PENDING_MESSAGES_PER_SENDER: usize = TeamLimits::DEFAULT.max_pending_messages_per_sender;
+
+    #[test]
+    fn configured_limits_replace_the_defaults() {
+        let limits = TeamLimits { max_request_hops: 2, max_pending_messages: 3, max_pending_messages_per_sender: 2 };
+        let requests = Requests::new(limits);
+        requests.start_turn("a", Turn::Chat(2));
+        assert!(requests.reserve_message("a").unwrap_err().to_string().contains("hop limit (2)"));
+        requests.start_turn("a", Turn::Chat(0));
+        requests.start_turn("b", Turn::Chat(0));
+        requests.reserve_message("a").unwrap();
+        requests.reserve_message("a").unwrap();
+        assert!(requests.reserve_message("a").unwrap_err().to_string().contains("(limit 2)"));
+        requests.reserve_message("b").unwrap();
+        assert_eq!(requests.reserve_message("b").unwrap_err().to_string(), "too many pending bot messages");
+    }
 
     #[test]
     fn exhausted_chain_rejects_messages_without_reserving_capacity() {

@@ -183,7 +183,7 @@ impl Actor {
         }
         c.turn_ended(now);
         self.save_conversation(&sid, &c);
-        match rules::at_turn_end(&c, now) {
+        match rules::at_turn_end(&c, &self.hub.system.compaction, now) {
             Decision::Compact if self.compact_command().is_some() => {
                 self.queue.push_back(Queued::Compact { idle: false });
             }
@@ -202,9 +202,13 @@ impl Actor {
         }
         let now = now_ms();
         let life = self.cache_life();
-        if rules::while_idle(&c, life, now) == Decision::Compact && self.compact_command().is_some() {
+        if rules::while_idle(&c, &self.hub.system.compaction, life, now) == Decision::Compact
+            && self.compact_command().is_some()
+        {
             self.queue.push_back(Queued::Compact { idle: true });
-        } else if rules::rollover_due(&c, life, now) && handoff::pending(&self.hub.store, &self.cfg.id).is_none() {
+        } else if rules::rollover_due(&c, &self.hub.system.compaction, life, now)
+            && handoff::pending(&self.hub.store, &self.cfg.id).is_none()
+        {
             let reason = if now - c.last_turn >= life.ms() { handoff::Reason::Cold } else { handoff::Reason::Away };
             self.draft_handoff(&sid, reason);
         }
@@ -254,7 +258,7 @@ impl Actor {
         {
             let c = self.settle_kept(&sid);
             let life = self.cache_life();
-            if rules::rollover_due(&c, life, now_ms()) {
+            if rules::rollover_due(&c, &self.hub.system.compaction, life, now_ms()) {
                 let reason =
                     if now_ms() - c.last_turn >= life.ms() { handoff::Reason::Cold } else { handoff::Reason::Away };
                 self.draft_handoff(&sid, reason);

@@ -1,5 +1,7 @@
-use super::super::requests::MAX_PENDING_MESSAGES_PER_SENDER;
 use super::*;
+
+const MAX_PENDING_MESSAGES_PER_SENDER: usize =
+    crate::system_config::TeamLimits::DEFAULT.max_pending_messages_per_sender;
 
 #[tokio::test]
 async fn sender_quota_survives_sender_stop_and_frees_on_recipient_stop() {

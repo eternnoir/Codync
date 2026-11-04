@@ -21,7 +21,6 @@ mod requests;
 pub use requests::{Requests, Turn};
 
 const MAX_MESSAGE_BYTES: usize = 32_000;
-const MAX_PENDING_MESSAGES: usize = 64;
 /// What an exchange notice keeps of a reply.
 const NOTICE_REPLY_BYTES: usize = 4000;
 /// What the sender's reply turn quotes of its request: the session taking the reply may not have sent it.
