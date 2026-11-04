@@ -39,7 +39,7 @@ const fn on() -> bool {
 /// A release build of a standalone binary that the installed service runs: the hosts that
 /// update themselves (app bundles and Homebrew own their binaries).
 fn require_self_updating(executable: &Path) -> Result<()> {
-    crate::environment::Environment::current().require_release_updates()?;
+    require_release_updates()?;
     install::require_standalone(executable)?;
     ensure!(
         service::installed(),
@@ -87,7 +87,7 @@ fn route(executable: &Path) -> Result<Route> {
         release::platform()?;
         return Ok(Route::Worker);
     }
-    crate::environment::Environment::current().require_release_updates()?;
+    require_release_updates()?;
     ensure!(
         recent(APP_POLLED.load(Ordering::Acquire), crate::store::now_ms(), APP_POLL_TTL_MS).is_some(),
         "Codync isn't open on this computer. Open it, then try again."
@@ -114,9 +114,7 @@ pub fn latest_version() -> Option<String> {
 /// at login, GitHub unreachable) is tried again sooner, from a minute up to every 30 minutes. Release builds
 /// on platforms with releases only: a development host never offers one.
 pub async fn release_watch() {
-    if crate::environment::Environment::current() != crate::environment::Environment::Main
-        || release::platform().is_err()
-    {
+    if require_release_updates().is_err() || release::platform().is_err() {
         return;
     }
     let mut retry = Duration::from_mins(1);
@@ -214,7 +212,7 @@ fn status_at(executable: &Path) -> Result<Value> {
 pub fn set_automatic(enabled: bool) -> Result<Value> {
     let executable = service::current_exe()?;
     if enabled {
-        crate::environment::Environment::current().require_release_updates()?;
+        require_release_updates()?;
         install::require_standalone(&executable)?;
         ensure!(service::installed(), "install the background host service before enabling automatic updates");
         service::require_executable(&executable)?;
@@ -224,7 +222,7 @@ pub fn set_automatic(enabled: bool) -> Result<Value> {
 }
 
 pub async fn check() -> Result<Value> {
-    crate::environment::Environment::current().require_release_updates()?;
+    require_release_updates()?;
     let _lock = lock()?;
     let mut state: State = read("update-state.json")?;
     ensure!(!awaiting_worker(&state), "a host update is starting");
@@ -251,7 +249,7 @@ pub async fn check() -> Result<Value> {
 }
 
 pub async fn apply(port: u16, force: bool, worker: bool) -> Result<Value> {
-    crate::environment::Environment::current().require_release_updates()?;
+    require_release_updates()?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let _lock = loop {
         match lock() {
@@ -298,7 +296,7 @@ pub async fn apply(port: u16, force: bool, worker: bool) -> Result<Value> {
 /// The updater must live outside the daemon's job/cgroup. Otherwise stopping
 /// the host would also kill the process responsible for starting its replacement.
 pub fn spawn_worker(port: u16, force: bool) -> Result<()> {
-    crate::environment::Environment::current().require_release_updates()?;
+    require_release_updates()?;
     let _lock = lock()?;
     let previous: State = read("update-state.json")?;
     ensure!(!awaiting_worker(&previous), "a host update is already starting");
@@ -354,8 +352,19 @@ fn spawn_job(executable: &Path, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// This is a fork of Codync: it keeps upstream's version numbers, so an upstream release would look like its own
+/// next version and replace the fork's changes. The fork is rebuilt from each upstream release instead.
+const FORK_BUILD: bool = true;
+
+/// Release updates replace this build with the latest upstream release: never on Codync Dev, nor on a fork build.
+fn require_release_updates() -> Result<()> {
+    crate::environment::Environment::current().require_release_updates()?;
+    ensure!(!FORK_BUILD, "this fork build of Codync does not install upstream updates; rebuild it from the fork");
+    Ok(())
+}
+
 pub async fn automatic_loop(hub: Arc<Hub>) {
-    if crate::environment::Environment::current() != crate::environment::Environment::Main {
+    if require_release_updates().is_err() {
         return;
     }
     let mut last_check = None;

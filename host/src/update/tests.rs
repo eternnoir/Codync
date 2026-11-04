@@ -1,4 +1,4 @@
-use super::{APP_POLL_TTL_MS, APP_REQUEST_TTL_MS, install, recent, release};
+use super::{APP_POLL_TTL_MS, APP_REQUEST_TTL_MS, install, recent, release, require_release_updates};
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use ed25519_dalek::{Signer as _, SigningKey};
 use std::{
@@ -185,4 +185,9 @@ fn app_requests_and_polls_count_only_while_recent() {
         assert_eq!(recent(at, at + ttl, ttl), None, "an app opened later doesn't act on an old request");
         assert_eq!(recent(0, at, ttl), None, "never asked, never polled");
     }
+}
+
+#[test]
+fn a_fork_build_never_takes_upstream_updates() {
+    assert!(require_release_updates().is_err());
 }
